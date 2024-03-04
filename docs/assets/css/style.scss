@@ -1,0 +1,81 @@
+---
+---
+
+$large-breakpoint: 85em !default;
+
+@import "{{ site.theme }}";
+
+
+.page-header {
+    padding: 0.9rem 0rem;
+}
+
+header a {
+    color: #c0c0c0;
+}
+
+.toc {
+    
+    @include large {
+        position: -webkit-sticky; /* for Safari */
+        position: sticky;
+        align-self: flex-start;
+        top: 0;
+    }
+}
+
+.main-content {
+
+    @include large {
+        max-width: 90rem;       
+        margin: .5rem;
+        padding: 0;
+        flex: 1 0 400px;
+        font-size: 1.28rem; 
+        
+        code {
+            padding: 2px 4px;
+            font-family: Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: inherit;
+            color: $code-text-color;
+            background-color: $code-bg-color;
+            border-radius: 0.3rem;
+        }
+
+        pre {
+            padding: 0.8rem;
+            margin-top: 0;
+            margin-bottom: 1rem;
+            font: 1rem Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            color: $code-text-color;
+            word-wrap: normal;
+            background-color: $code-bg-color;
+            border: solid 1px $border-color;
+            border-radius: 0.3rem;
+        
+            > code {
+            padding: 0;
+            margin: 0;
+            font-size: 1.15rem;
+            color: $code-text-color;
+            word-break: normal;
+            white-space: pre;
+            background: transparent;
+            border: 0;
+            }
+        }
+    }
+
+    @include medium {
+        padding: 2rem 4rem;
+        font-size: 1.2rem;
+
+    }
+
+    @include small {
+        padding: 2rem 1rem;
+        font-size: 1rem;
+        max-width: 100vw;
+    }
+
+}
