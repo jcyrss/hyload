@@ -2,12 +2,12 @@ from gevent import monkey,spawn,sleep, wait
 monkey.patch_all()
 from hyload.stats import Stats
 from hyload.logger import TestLogger
-from hyload.httpclient import HttpClient
+from hyload.httpclient import HttpClient, create_ct_body_for_uploading
 
 
 __all__ = [
     'sleep', 'Stats', 'TestLogger', 'HttpClient',
-    'run_task', 'wait_for_tasks_done'
+    'run_task', 'wait_for_tasks_done', 'create_ct_body_for_uploading'
 ]
 
 

@@ -43,6 +43,85 @@ def _guessEncodingFromContentType(contentType):
                 return one[8:]
     return 'utf-8'
 
+
+def create_ct_body_for_uploading(file_path:str, other_form_data=None):
+    """helper function to compose a request of uploading file
+
+    call it like :
+
+    header_ct, body = create_ct_body_for_uploading('d:/video1.mp4', [
+            {'params':'name="token"',  'value':'sdfsdfsdf' },
+            {'params':'name="token2"', 'value':'sdf2sdf2sdf' },
+        ])
+
+    response = client.post(
+        'http://127.0.0.1/upload',        
+        headers={
+            'Content-Type': header_ct
+        },
+        data=body,
+    )
+
+
+    Parameters
+    ----------
+    file_path : str
+        the path of the file to upload, like 'd:/video1.mp4'
+
+    other_form_data : list|None, optional
+        the other form data in post body, like 
+        [
+            {'params':'name="token"',  'value':'sdfsdfsdf' },
+            {'params':'name="token2"', 'value':'sdf2sdf2sdf' },
+        ]
+
+    Returns
+    -------
+    _type_
+        _description_
+    """
+    boundary = '----WebKitFormBoundaryNY3JQwicpzfPD9ra'
+    header_ct = f'multipart/form-data; boundary={boundary}' # Content-Type
+
+
+    boundary = boundary.encode()
+    BNL = b'\r\n'
+    BOUNDARY_LINE = b'--' + boundary + BNL
+    BOUNDARY_LINE_END   = b'--' + boundary + b'--' + BNL + BNL
+    import mimetypes,os
+    fileName = os.path.basename(file_path)
+
+    body = b''
+    
+    # **** file content part
+    body += BOUNDARY_LINE
+    body += f'Content-Disposition: form-data; name="file"; filename={fileName}'.encode() + BNL
+    fileType = mimetypes.guess_type(fileName)[0] or 'application/octet-stream'
+    body += f'Content-Type: {fileType}'.encode() + BNL  + BNL
+
+    with open(file_path,'rb') as f: 
+        # Bad for large files
+        body +=  f.read()
+
+    body += BNL
+
+    # **** other entries
+    if other_form_data is not None:
+        for entry in other_form_data:
+            body += BOUNDARY_LINE
+
+            params = entry['params']
+            value = entry['value']
+
+            body += BNL + f'Content-Disposition: form-data; {params}'.encode() + BNL + BNL
+            body += value.encode() + BNL
+
+    # **** end
+    body += BOUNDARY_LINE_END
+
+    return header_ct, body
+
+
 # HTTPResponse Wrapper obj
 # refer to https://docs.python.org/3/library/http.client.html#httpresponse-objects
 class HttpResponse():
