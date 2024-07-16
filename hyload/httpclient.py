@@ -5,8 +5,11 @@ from hyload.util import getCurTime
 from hyload.logger import TestLogger
 import json as jsonlib
 from http.cookies import SimpleCookie
-from typing import Union, Dict
+from typing import Union, Dict, List
 from functools import cached_property
+import random, string, mimetypes,os
+
+
 
 _common_headers = {
     # 'User-Agent' : "hyload tester"
@@ -44,14 +47,18 @@ def _guessEncodingFromContentType(contentType):
     return 'utf-8'
 
 
-def create_ct_body_for_uploading(file_path:str, other_form_data=None):
+_string_range = string.ascii_lowercase + string.digits
+_upload_file_cache = {}
+def create_ct_body_for_uploading(params, use_file_cache=True, file_type=None):
     """helper function to compose a request of uploading file
 
     call it like :
 
-    header_ct, body = create_ct_body_for_uploading('d:/video1.mp4', [
-            {'params':'name="token"',  'value':'sdfsdfsdf' },
-            {'params':'name="token2"', 'value':'sdf2sdf2sdf' },
+    header_ct, body = create_ct_body_for_uploading([
+            ("param1", 'value1' ),
+            ("param2", 'value2' ),
+            'file1.mp4',
+            'file2.mp4',
         ])
 
     response = client.post(
@@ -61,60 +68,52 @@ def create_ct_body_for_uploading(file_path:str, other_form_data=None):
         },
         data=body,
     )
-
-
-    Parameters
-    ----------
-    file_path : str
-        the path of the file to upload, like 'd:/video1.mp4'
-
-    other_form_data : list|None, optional
-        the other form data in post body, like 
-        [
-            {'params':'name="token"',  'value':'sdfsdfsdf' },
-            {'params':'name="token2"', 'value':'sdf2sdf2sdf' },
-        ]
-
-    Returns
-    -------
-    _type_
-        _description_
     """
-    boundary = '----WebKitFormBoundaryNY3JQwicpzfPD9ra'
-    header_ct = f'multipart/form-data; boundary={boundary}' # Content-Type
 
+    boundary = ''.join(random.choices(_string_range, k=32))
+    header_ct = f'multipart/form-data; boundary={boundary}' # Content-Type
 
     boundary = boundary.encode()
     BNL = b'\r\n'
     BOUNDARY_LINE = b'--' + boundary + BNL
-    BOUNDARY_LINE_END   = b'--' + boundary + b'--' + BNL + BNL
-    import mimetypes,os
-    fileName = os.path.basename(file_path)
+    BOUNDARY_LINE_END   = b'--' + boundary + b'--' + BNL*2
 
     body = b''
     
-    # **** file content part
-    body += BOUNDARY_LINE
-    body += f'Content-Disposition: form-data; name="file"; filename={fileName}'.encode() + BNL
-    fileType = mimetypes.guess_type(fileName)[0] or 'application/octet-stream'
-    body += f'Content-Type: {fileType}'.encode() + BNL  + BNL
+    for entry in params:
+        body += BOUNDARY_LINE
 
-    with open(file_path,'rb') as f: 
-        # Bad for large files
-        body +=  f.read()
+        if type(entry)==tuple and len(entry) == 2:  # **** other entries
+                        
+            name, value = entry
 
-    body += BNL
-
-    # **** other entries
-    if other_form_data is not None:
-        for entry in other_form_data:
-            body += BOUNDARY_LINE
-
-            params = entry['params']
-            value = entry['value']
-
-            body += BNL + f'Content-Disposition: form-data; {params}'.encode() + BNL + BNL
+            body += f'Content-Disposition: form-data; name="{name}"'.encode() + BNL*2
             body += value.encode() + BNL
+
+        elif type(entry)==str : # **** file         
+            file_path = entry
+            fileName = os.path.basename(file_path)
+
+            body += f'Content-Disposition: form-data; name="file"; filename={fileName}'.encode() + BNL
+
+            if file_type is None:
+                file_type = mimetypes.guess_type(fileName)[0] or 'application/octet-stream'
+            body += f'Content-Type: {file_type}'.encode() + BNL*2
+
+            content = None
+            if use_file_cache:
+                content = _upload_file_cache.get(file_path)
+
+            if content is None:
+                with open(file_path,'rb') as f: 
+                    # Bad for large files
+                    content = f.read()
+            
+            if use_file_cache:
+                _upload_file_cache[file_path] = content
+            
+            body +=  content + BNL
+
 
     # **** end
     body += BOUNDARY_LINE_END
@@ -324,6 +323,7 @@ class HttpClient:
             headers:Union[None,Dict[str,str]]=None, 
             data:Union[None,Dict[str,str],str,bytes]=None, 
             json:Union[None,Dict[str,str]]=None,
+            files:Union[None, List]=None,
             request_body_encoding:Union[None,str]=None,
             debug:bool=False,
             debug_print_request_body_encoding:Union[None,str]=None,
@@ -358,6 +358,26 @@ class HttpClient:
             A JSON serializable Python object to send in the body of the HTTP requests.   
             The usage is similar to library Requests.
 
+        files: 
+            This argument is used to upload files.
+        
+            call it like :
+
+            client.post(
+                'http://www.url-to-upload',
+                files = [
+                    'file1.mp4',  # file1 to upload
+                    'file2.mp4',  # file2 to upload
+
+                    # other form-data parameters
+                    ("param1", 'value1' ), 
+                    ("param2", 'value2' ),
+                ],
+                headers={
+                    # necessary headers
+                }
+            )
+            
         request_body_encoding : str | None   (optional)
             HTTP request body bytes encoding, all Python char-encoding are supported. 
             if not specified, hyload will use 'utf8' as text-encoding.  
@@ -450,12 +470,17 @@ class HttpClient:
 
         # body        
         body = None
+
         # msg body is in format of JSON
         if json is not None:
             if (request_body_encoding is None): request_body_encoding='utf-8'
             headers['Content-Type'] = 'application/json; charset=' + request_body_encoding
             body = jsonlib.dumps(json,ensure_ascii=False).encode(request_body_encoding)
 
+        # multipart/form-data upload
+        elif files is not None:
+            header_ct, body = create_ct_body_for_uploading(files)
+            headers['Content-Type'] = header_ct
         
         # msg body is in format of urlencoded
         elif data is not None:                        
@@ -713,6 +738,7 @@ class HttpClient:
             headers:Union[None,Dict[str,str]]=None, 
             data:Union[None,Dict[str,str],str,bytes]=None, 
             json:Union[None,Dict[str,str]]=None,
+            files:Union[None, List]=None,
             request_body_encoding:Union[None,str]=None,
             debug:bool=False,
             debug_print_request_body_encoding:Union[None,str]=None,
@@ -741,6 +767,26 @@ class HttpClient:
         json : Dict[str, str] | None   (optional)
             A JSON serializable Python object to send in the body of the HTTP requests.   
             The usage is similar to library Requests.
+
+        files: 
+            This argument is used to upload files.
+        
+            call it like :
+
+            client.post(
+                'http://www.url-to-upload',
+                files = [
+                    'file1.mp4',  # file1 to upload
+                    'file2.mp4',  # file2 to upload
+
+                    # other form-data parameters
+                    ("param1", 'value1' ), 
+                    ("param2", 'value2' ),
+                ],
+                headers={
+                    # necessary headers
+                }
+            )
 
         request_body_encoding : str | None   (optional)
             HTTP request body bytes encoding, all Python char-encoding are supported. 
@@ -780,6 +826,7 @@ class HttpClient:
                          headers=headers, 
                          data=data, 
                          json=json, 
+                         files=files,
                          request_body_encoding=request_body_encoding, 
                          debug=debug, 
                          debug_print_request_body_encoding=debug_print_request_body_encoding, 
