@@ -1,4 +1,4 @@
-import time, http.client, socket, gzip
+import time, http.client, socket, gzip, ssl
 from urllib.parse import urlencode
 from hyload.stats import Stats,bcolors
 from hyload.util import getCurTime
@@ -206,7 +206,7 @@ class HttpResponse():
 # refer to https://docs.python.org/3/library/http.client.html#http.client.HTTPConnection
 class HttpClient:
     
-    def __init__(self, timeout:int=10, proxy:Union[None,str]=None): 
+    def __init__(self, timeout:int=10, proxy:Union[None,str]=None, ssl_verify:bool=True): 
         """One HttpClient object represents a http client
 
         Parameters
@@ -214,31 +214,46 @@ class HttpClient:
         timeout : int   (optional)
             It is the timeout value for network operations, like connecting. , by default 10
         proxy : Union[None,str]   (optional)
-            It is to specify the proxy, like '127.0.0.1:10888', by default None
+            It is to specify the proxy, like '127.0.0.1:8888', by default None
+        ssl_verify : bool   (optional)
+            It is to specify whether verify the SSL certificate, by default True
         """
         
         self.timeout     = timeout
         self.proxy       = proxy    # in form of 127.0.0.1:8888
         self._conn       = None     # default HTTPConnection or  HTTPSConnection
         self._conn_table = {}
+        self.ssl_verify  = ssl_verify
 
         self._httplibPathced = False
 
     def _create_connection(self, protocol, host, port):
         
+        https = False
+
         if protocol == 'http':
             connection_class = http.client.HTTPConnection
         elif protocol == 'https':
+            https = True
             connection_class = http.client.HTTPSConnection
         else:
             raise Exception(f'unsupported protocol: {protocol}')
         
-        # set default connection
+        # set default connection               
         if self.proxy is None:
-            self._conn = connection_class(host, port, timeout=self.timeout)
-        else:
-            self._conn = connection_class(self.proxy, timeout=self.timeout)
+            if https and not self.ssl_verify:
+                self._conn = connection_class(host, port, timeout=self.timeout, context = ssl._create_unverified_context())
+            else:
+                self._conn = connection_class(host, port, timeout=self.timeout)
+        else:            
+            if https and not self.ssl_verify:
+                self._conn = connection_class(self.proxy, timeout=self.timeout, context = ssl._create_unverified_context())
+            else:
+                self._conn = connection_class(self.proxy, timeout=self.timeout)
+
             self._conn.set_tunnel(host, port)
+
+
             
         self._conn.protocol = protocol
         self._conn.cookie = SimpleCookie()
