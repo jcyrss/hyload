@@ -22,6 +22,7 @@ def run_task(target, *args, **kwargs):
 def wait_for_tasks_done():
     global _task_list
     wait(_task_list)
+    sleep(1.2) # wait for stats routine to send last second stats
     print('\n==== all tasks end ====\n')
 
 def wait_for_ever():
