@@ -2,7 +2,7 @@ import logging
 import logging.handlers
 import sys,os
 from datetime import datetime
-from hyload.util import getCurTime
+from .util import getCurTime
 
 
 def getCommandArg(argName):

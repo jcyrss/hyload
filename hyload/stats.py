@@ -1,4 +1,4 @@
-from hyload.util import getCurTime
+from .util import getCurTime
 import time,sys,json,socket,os,gevent
 import http.client
 from urllib.parse import quote_plus

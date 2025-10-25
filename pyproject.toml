@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hyload"
+# version = "x.x.x"
+dynamic = ["version"]
+authors = [
+  {name = "Jiang Chunyang 白月黑羽-江春阳", email = "jcyrss@gmail.com"},
+]
+description = "load testing library"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+requires-python = ">=3.8"
+keywords = ["hyload", "loadtesting"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "gevent>=22.10.2",
+    "matplotlib",
+    "paramiko>=3.2.0",
+    "websockets>=11.0.3",  # needed by remote stats hub function
+]
+
+[project.urls]
+Homepage = "https://github.com/jcyrss/hyload"
+Download = "https://pypi.python.org/pypi/hyload"
+
+[tool.setuptools.packages.find]
+include = ["hyload*"]
+
+# specify non-code files that should be included within your Python package
+[tool.setuptools.package-data]
+"*" = ["*.*"]

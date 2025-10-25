@@ -1,8 +1,8 @@
 import time, http.client, socket, gzip, ssl
 from urllib.parse import urlencode
-from hyload.stats import Stats,bcolors
-from hyload.util import getCurTime
-from hyload.logger import TestLogger
+from .stats import Stats,bcolors
+from .util import getCurTime
+from .logger import TestLogger
 import json as jsonlib
 from http.cookies import SimpleCookie
 from typing import Union, Dict, List
@@ -136,7 +136,7 @@ class HttpResponse():
         self.url = url
 
         self.error_type  = error_type
-        self.status_code = http_response.status
+        self.status_code = http_response.status if http_response else -1
 
         self._encoding = None
     
@@ -303,13 +303,23 @@ class HttpClient:
                 raise Exception(f'url error:{url}')
             
             parts = urlPart.split('/',1)
-            host = parts[0]
-            path = '/' if len(parts)==1 else '/' + parts[1]
+            host_port = parts[0]
+            
+            if len(parts) == 1: # no path
+                path = '/'
+                if '?' in host_port:  # like: http://localhost:80?para=1
+                    host_port, rest = host_port.split('?')
+                    path = '/?' + rest
+            else:  
+                path = '/' + parts[1]
+            
+            # path = '/' if len(parts)==1 else '/' + parts[1]
 
-            if ':' not in host:
+            if ':' not in host_port:
+                host = host_port
                 port = 443 if isSecure else 80
             else:
-                host, port = host.split(':')
+                host, port = host_port.split(':')
                 port = int(port)
 
             return host, port, path
@@ -567,36 +577,36 @@ class HttpClient:
         afterSendTime = Stats.one_sent()
 
 
-        # recv response
+        # ***********************************
+        # ********** recv response **********
+        # ***********************************
         try:
-            # getresponse() of http.client.Connection only gets reponse status line and headers.
+            # Here, only get status-line and headers of response. Body is not read for now.
             http_response = self._conn.getresponse()
-            
-            if debug:
-                print(bcolors.OKBLUE + f"HTTP/{'1.1' if http_response.version==11 else '1.0'} {http_response.status} {http_response.reason}" + bcolors.ENDC)
-                print(bcolors.OKBLUE + http_response.msg.as_string() + bcolors.ENDC,end='')
-        except socket.timeout as e:
-            print('!!! response timeout')
+        
+        except TimeoutError as e:
+            print('!!! response timeout, no complete HEAD')
 
             Stats.one_timeout()
 
             self._conn.close()
             Stats.connection_num_decreace()
             
-            TestLogger.write(f'110|response time out|{url}')
+            TestLogger.write(f'110|response time out, no complete HEAD|{url}')
             return HttpResponse(error_type=110)
             
         except ConnectionAbortedError as e:
-            print('!!! Connection Aborted during receiving response',e)
+            print('!!! Connection Aborted during receiving response HEAD')
             Stats.one_error()
 
             self._conn.close()
             Stats.connection_num_decreace()
             
-            TestLogger.write(f'111|Connection Aborted during receiving response|{url}')
+            TestLogger.write(f'111|Connection Aborted during receiving response HEAD|{url}')
             return HttpResponse(error_type=111)
 
         except http.client.RemoteDisconnected as e:    
+            print('!!! RemoteDisconnected',e)
             self._conn.close()
             Stats.connection_num_decreace()
 
@@ -617,7 +627,23 @@ class HttpClient:
                 print(err)
                 TestLogger.write(err)
                 return HttpResponse(error_type=120)
-              
+
+                        
+        except http.client.BadStatusLine as e:
+            print(f'!!! Response with Bad Status Line : `{e}`', )
+            Stats.one_error()
+
+            self._conn.close()
+            Stats.connection_num_decreace()
+            
+            TestLogger.write(f'121|Response with Bad Status Line|{url}|`{e}`')
+            return HttpResponse(error_type=121)
+
+
+        if debug:
+            print(bcolors.OKBLUE + f"HTTP/{'1.1' if http_response.version==11 else '1.0'} {http_response.status} {http_response.reason}" + bcolors.ENDC)
+            print(bcolors.OKBLUE + http_response.msg.as_string() + bcolors.ENDC,end='')      
+        
         recvTime = Stats.one_recv(afterSendTime)
 
         # check cookie
@@ -626,35 +652,71 @@ class HttpClient:
             # print (cookieHdrs)
             self._conn.cookie.load(cookieHdrs)
 
-        # if duration:
+        
+        if not http_response.length:
+            raw_body = None
+            if debug:
+                print('===========================\n')
+        else:
+            # read HTTP RESPONSE BODY
+            try:
+                raw_body = http_response.read()
+            except TimeoutError:                
+                print('!!! response timeout, no complete BODY')     
+                
+                Stats.one_error()
+
+                self._conn.close()
+                Stats.connection_num_decreace()
+                
+                TestLogger.write(f'132|response time out, no complete BODY|{url}')
+                return HttpResponse(error_type=132)
             
+            except ConnectionAbortedError as e:
+                print('!!! Connection Aborted during receiving response BODY')
+                Stats.one_error()
+
+                self._conn.close()
+                Stats.connection_num_decreace()
+                
+                TestLogger.write(f'136|Connection Aborted during receiving response BODY|{url}')
+                return HttpResponse(error_type=136)
+
+            except http.client.IncompleteRead as e: 
+                print('!!! IncompleteRead: Remote Disconnected during receiving response BODY')
+                Stats.one_error()
+
+                self._conn.close()
+                Stats.connection_num_decreace()
+                
+                TestLogger.write(f'138|Connection RemoteDisconnected during receiving response BODY|{url}')
+                return HttpResponse(error_type=138)
+        
+            if debug:
+                contentEncoding = http_response.getheader('Content-Encoding')
+                if contentEncoding == 'gzip':
+                    try: raw_body = gzip.decompress(raw_body)
+                    except OSError: pass      
+
+                if debug_print_response_body_encoding is None:
+                    contentType = http_response.getheader('Content-Type')
+                    debug_print_response_body_encoding = _guessEncodingFromContentType(contentType)
+
+                self._print_msg(
+                    raw_body,
+                    debug_print_response_body_encoding, 
+                    bcolors.OKBLUE,
+                    debug_print_body_max_len)     
+                
+                print('\n===========================\n')  
+
+
+        # if duration:            
         #     # print(f'send {beforeSendTime} -- recv {recvTime}')
         #     extraWait = duration-(recvTime-beforeSendTime)
         #     if extraWait >0:  
         #         # print(f'sleep {extraWait}')
         #         time.sleep(extraWait)
-
-        
-        raw_body = http_response.read()
-        
-        if debug:
-            contentEncoding = http_response.getheader('Content-Encoding')
-            if contentEncoding == 'gzip':
-                try: raw_body = gzip.decompress(raw_body)
-                except OSError: pass      
-
-            if debug_print_response_body_encoding is None:
-                contentType = http_response.getheader('Content-Type')
-                debug_print_response_body_encoding = _guessEncodingFromContentType(contentType)
-
-            self._print_msg(
-                raw_body,
-                debug_print_response_body_encoding, 
-                bcolors.OKBLUE,
-                debug_print_body_max_len)     
-            
-            print('\n===========================\n')  
-
 
         self.response = HttpResponse(http_response,
                                    raw_body,
